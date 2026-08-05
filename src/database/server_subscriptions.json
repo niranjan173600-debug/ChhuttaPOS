@@ -1,0 +1,86 @@
+{
+  "subscriptions": {
+    "CP-2ELBNS": {
+      "state": {
+        "plan": "WEEKLY",
+        "status": "ACTIVE",
+        "subscription_status": "active",
+        "subscriptionId": null,
+        "planId": null,
+        "paymentId": "pay_TMA3TJvn9UItMa",
+        "orderId": "order_TMA3HxHBgI3CCt",
+        "trial_start_date": "2026-08-05T16:53:41.893+00:00",
+        "trial_end_date": "2026-08-19T16:31:25.495+00:00",
+        "subscription_start": "2026-08-05T16:53:41.893+00:00",
+        "subscription_end": "2026-08-19T16:31:25.495+00:00",
+        "expiryDate": "2026-08-19T16:31:25.495+00:00",
+        "lastVerificationTime": "2026-08-05T16:54:23.325Z",
+        "verificationToken": "pay_TMA3TJvn9UItMa",
+        "offlineGracePeriodEnds": "2026-08-21T16:31:25.495+00:00",
+        "gracePeriodExpiry": "2026-08-21T16:31:25.495+00:00",
+        "autoRenewEnabled": false,
+        "baseDuration": 7,
+        "bonusDays": 0,
+        "graceDays": 2,
+        "createdAt": "2026-08-05T16:31:25.706096+00:00",
+        "updatedAt": "2026-08-05T16:53:43.903+00:00"
+      },
+      "history": [
+        {
+          "id": "TXN-990676",
+          "planName": "WEEKLY Plan",
+          "purchaseDate": "2026-08-05T16:53:41.893Z",
+          "expiryDate": "2026-08-19T16:31:25.495Z",
+          "duration": 7,
+          "amountPaid": 70,
+          "razorpayPaymentId": "pay_TMA3TJvn9UItMa",
+          "paymentStatus": "SUCCESS",
+          "renewedBy": "nalina",
+          "createdAt": "2026-08-05T16:53:41.893Z",
+          "renewalType": "MANUAL"
+        }
+      ]
+    },
+    "CP-5TGCE2": {
+      "state": {
+        "plan": "WEEKLY",
+        "status": "ACTIVE",
+        "subscription_status": "active",
+        "subscriptionId": null,
+        "planId": null,
+        "paymentId": "pay_TMA7c0I2PbcjHX",
+        "orderId": "order_TMA7MZ28cuyVwa",
+        "trial_start_date": "2026-08-05T16:57:40.515+00:00",
+        "trial_end_date": "2026-08-19T16:56:34.878+00:00",
+        "subscription_start": "2026-08-05T16:57:40.515+00:00",
+        "subscription_end": "2026-08-19T16:56:34.878+00:00",
+        "expiryDate": "2026-08-19T16:56:34.878+00:00",
+        "lastVerificationTime": "2026-08-05T16:59:06.532Z",
+        "verificationToken": "pay_TMA7c0I2PbcjHX",
+        "offlineGracePeriodEnds": "2026-08-21T16:56:34.878+00:00",
+        "gracePeriodExpiry": "2026-08-21T16:56:34.878+00:00",
+        "autoRenewEnabled": true,
+        "baseDuration": 7,
+        "bonusDays": 0,
+        "graceDays": 2,
+        "createdAt": "2026-08-05T16:56:35.325308+00:00",
+        "updatedAt": "2026-08-05T16:57:41.576+00:00"
+      },
+      "history": [
+        {
+          "id": "TXN-248286",
+          "planName": "WEEKLY Plan",
+          "purchaseDate": "2026-08-05T16:57:40.515Z",
+          "expiryDate": "2026-08-19T16:56:34.878Z",
+          "duration": 7,
+          "amountPaid": 70,
+          "razorpayPaymentId": "pay_TMA7c0I2PbcjHX",
+          "paymentStatus": "SUCCESS",
+          "renewedBy": "manjunath",
+          "createdAt": "2026-08-05T16:57:40.515Z",
+          "renewalType": "MANUAL"
+        }
+      ]
+    }
+  }
+}

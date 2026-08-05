@@ -1,0 +1,6 @@
+{
+  "name": "ChhuttaPOS",
+  "description": "Offline-first Business Management and POS system built for product and service businesses.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

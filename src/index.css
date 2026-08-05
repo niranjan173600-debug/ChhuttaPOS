@@ -1,0 +1,155 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --background: #ffffff;
+    --foreground: #0f172a;
+    --card: #ffffff;
+    --card-foreground: #0f172a;
+    --popover: #ffffff;
+    --popover-foreground: #0f172a;
+    --input: #f8fafc;
+    --input-focus: #ffffff;
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --border: #e2e8f0;
+    --ring: #6366f1;
+    --caret: #0f172a;
+    --placeholder: #94a3b8;
+    color-scheme: light;
+  }
+
+  .dark {
+    --background: #020617;
+    --foreground: #f8fafc;
+    --card: #0f172a;
+    --card-foreground: #f8fafc;
+    --popover: #0f172a;
+    --popover-foreground: #f8fafc;
+    --input: #020617;
+    --input-focus: #0f172a;
+    --muted: #1e293b;
+    --muted-foreground: #94a3b8;
+    --border: #334155;
+    --ring: #818cf8;
+    --caret: #f8fafc;
+    --placeholder: #94a3b8;
+    color-scheme: dark;
+  }
+
+  /* Universal input theme adaptation */
+  input,
+  textarea,
+  select {
+    color: var(--foreground);
+    caret-color: var(--caret);
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+  textarea,
+  select {
+    background-color: var(--input);
+    color: var(--foreground);
+    border-color: var(--border);
+    caret-color: var(--caret);
+  }
+
+  /* Focus states */
+  input:focus,
+  textarea:focus,
+  select:focus {
+    border-color: var(--ring) !important;
+  }
+
+  /* Dark mode focus overrides */
+  .dark input:focus,
+  .dark textarea:focus,
+  .dark select:focus {
+    background-color: var(--input-focus) !important;
+    color: #ffffff !important;
+    caret-color: #ffffff !important;
+  }
+
+  /* Placeholder colors */
+  ::placeholder,
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--placeholder) !important;
+    opacity: 1;
+  }
+
+  .dark ::placeholder,
+  .dark input::placeholder,
+  .dark textarea::placeholder {
+    color: #94a3b8 !important;
+    opacity: 1;
+  }
+
+  /* Native select dropdown options styling in Light and Dark Mode */
+  select option {
+    background-color: #ffffff;
+    color: #0f172a;
+  }
+
+  .dark select option {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+  }
+
+  /* Date / Time / Search / Number inputs styling in Dark Mode */
+  .dark input[type="date"]::-webkit-calendar-picker-indicator,
+  .dark input[type="time"]::-webkit-calendar-picker-indicator,
+  .dark input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    filter: invert(1) opacity(0.85);
+  }
+
+  /* Number input spinner arrows contrast in dark mode */
+  .dark input[type="number"]::-webkit-inner-spin-button,
+  .dark input[type="number"]::-webkit-outer-spin-button {
+    filter: invert(1);
+  }
+
+  /* Search input clear button in dark mode */
+  .dark input[type="search"]::-webkit-search-cancel-button {
+    filter: invert(1);
+  }
+
+  /* WebKit Autofill Compatibility */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  textarea:-webkit-autofill:hover,
+  textarea:-webkit-autofill:focus,
+  select:-webkit-autofill,
+  select:-webkit-autofill:hover,
+  select:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--foreground) !important;
+    caret-color: var(--caret) !important;
+    transition: background-color 50000s ease-in-out 0s;
+  }
+
+  .dark input:-webkit-autofill,
+  .dark input:-webkit-autofill:hover,
+  .dark input:-webkit-autofill:focus,
+  .dark textarea:-webkit-autofill,
+  .dark textarea:-webkit-autofill:hover,
+  .dark textarea:-webkit-autofill:focus,
+  .dark select:-webkit-autofill,
+  .dark select:-webkit-autofill:hover,
+  .dark select:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0px 1000px #020617 inset !important;
+    -webkit-text-fill-color: #f8fafc !important;
+    caret-color: #f8fafc !important;
+  }
+
+  /* Disabled state */
+  input:disabled,
+  textarea:disabled,
+  select:disabled {
+    opacity: 0.55 !important;
+    cursor: not-allowed !important;
+  }
+}
