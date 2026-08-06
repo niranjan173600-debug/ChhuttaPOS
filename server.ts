@@ -16,7 +16,7 @@ import { createClient } from '@supabase/supabase-js';
 dotenv.config({ override: true });
 
 const app = reportExpressErrors(express());
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json({
   verify: (req: any, _res: any, buf: Buffer) => {
@@ -2050,6 +2050,9 @@ async function initFrontendMiddleware() {
     });
   }
 }
+app.get("/healthz", (req, res) => {
+  res.status(200).send("OK");
+});
 
 initFrontendMiddleware().then(() => {
   app.listen(PORT, "0.0.0.0", () => {
