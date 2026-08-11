@@ -16,7 +16,7 @@ import { createClient } from '@supabase/supabase-js';
 dotenv.config({ override: true });
 
 const app = reportExpressErrors(express());
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = 3000;
 
 app.use(express.json({
   verify: (req: any, _res: any, buf: Buffer) => {
@@ -320,13 +320,34 @@ async function safeSyncBusinessToSupabase(businessData: {
   taxNumber?: string;
   logoUrl?: string;
   isConfigured?: boolean;
-}): Promise<{ success: boolean; warning?: string }> {
+}): Promise<{ success: boolean; warning?: string; isExisting?: boolean; business?: any }> {
   if (!supabase) return { success: true, warning: 'Supabase client running offline mode.' };
 
   const sanitizedUrl = getSanitizedSupabaseUrl();
   const bizId = String(businessData.id).trim().toUpperCase();
+  const cleanOwnerEmail = businessData.ownerEmail ? String(businessData.ownerEmail).trim().toLowerCase() : '';
+
+  console.log(`Checking whether owner '${cleanOwnerEmail || bizId}' already owns a business...`);
 
   try {
+    // Step 1: Check if this business ID already exists
+    const { data: existingById } = await supabase.from('businesses').select('*').eq('id', bizId).maybeSingle();
+    if (existingById) {
+      console.log(`Existing business found by ID: ${bizId}. Preserving existing record.`);
+      return { success: true, isExisting: true, business: existingById };
+    }
+
+    // Step 2: Check if this owner email already owns a business
+    if (cleanOwnerEmail) {
+      const { data: existingByEmail } = await supabase.from('businesses').select('*').ilike('owner_email', cleanOwnerEmail).maybeSingle();
+      if (existingByEmail) {
+        console.log(`Existing business found for owner '${cleanOwnerEmail}': ${existingByEmail.id}. Preserving existing record.`);
+        return { success: true, isExisting: true, business: existingByEmail };
+      }
+    }
+
+    console.log(`No existing business found for owner '${cleanOwnerEmail || bizId}'. Creating new business.`);
+
     const record = {
       id: bizId,
       name: businessData.name,
@@ -334,7 +355,7 @@ async function safeSyncBusinessToSupabase(businessData: {
       currency: businessData.currency || 'INR',
       timezone: businessData.timezone || 'Asia/Kolkata',
       owner_name: businessData.ownerName || null,
-      owner_email: businessData.ownerEmail || null,
+      owner_email: cleanOwnerEmail || null,
       phone: businessData.phone || null,
       address: businessData.address || null,
       tax_number: businessData.taxNumber || null,
@@ -358,7 +379,7 @@ async function safeSyncBusinessToSupabase(businessData: {
     }
 
     console.log(`[Supabase Business Sync Success] Project: ${sanitizedUrl} | Table: businesses | Business ID: ${bizId} successfully stored and verified in Supabase.`);
-    return { success: true };
+    return { success: true, isExisting: false, business: record };
   } catch (err: any) {
     const msg = err?.message || String(err);
     console.warn(`[Supabase Business Sync Exception] Project: ${sanitizedUrl} | Table: businesses | Business ID: ${bizId} | Exception: ${msg}`);
@@ -373,7 +394,7 @@ async function safeSyncLicenseToSupabase(payload: {
   businessId: string;
   subscriptionId?: string;
   status?: string;
-}): Promise<{ success: boolean; warning?: string; license?: any }> {
+}): Promise<{ success: boolean; warning?: string; license?: any; isExisting?: boolean }> {
   const sanitizedUrl = getSanitizedSupabaseUrl();
   const bizId = String(payload.businessId).trim().toUpperCase();
   const record = {
@@ -388,6 +409,13 @@ async function safeSyncLicenseToSupabase(payload: {
   if (!supabase) return { success: true, warning: 'Supabase client running offline mode.', license: record };
 
   try {
+    // Check if license already exists
+    const { data: existingLic } = await supabase.from('licenses').select('*').eq('business_id', bizId).maybeSingle();
+    if (existingLic) {
+      console.log(`Existing license found for Business ${bizId}. Preserving existing license to prevent duplicate creation!`);
+      return { success: true, license: existingLic, isExisting: true };
+    }
+
     // Ensure parent business exists before setting license
     const { data: existingBiz } = await supabase.from('businesses').select('id').eq('id', bizId).maybeSingle();
     if (!existingBiz) {
@@ -413,7 +441,7 @@ async function safeSyncLicenseToSupabase(payload: {
       console.log(`[Supabase License Sync Success] Project: ${sanitizedUrl} | Table: licenses | License ${bizId} successfully stored and verified.`);
     }
 
-    return { success: true, license: record };
+    return { success: true, license: record, isExisting: false };
   } catch (err: any) {
     const msg = err?.message || String(err);
     console.warn(`[Supabase License Sync Exception] ${msg}`);
@@ -548,7 +576,7 @@ function applyServerPromo(promoCode: string): { discountPercent: number; bonusDa
 // -------------------------------------------------------------
 // LOCAL DATA PERSISTENCE FOR SERVER STATUSES
 // -------------------------------------------------------------
-const DB_FILE = path.join(process.cwd(), 'src', 'database', 'server_subscriptions.json');
+const DB_FILE = path.join(process.cwd(), 'server_subscriptions.json');
 
 interface ServerSubscriptionDB {
   subscriptions: Record<string, {
@@ -563,6 +591,11 @@ function loadSubscriptions(): ServerSubscriptionDB {
       const content = fs.readFileSync(DB_FILE, 'utf-8');
       return JSON.parse(content);
     }
+    const legacyPath = path.join(process.cwd(), 'src', 'database', 'server_subscriptions.json');
+    if (fs.existsSync(legacyPath)) {
+      const content = fs.readFileSync(legacyPath, 'utf-8');
+      return JSON.parse(content);
+    }
   } catch (err) {
     console.error('Failed to read server subscriptions DB:', err);
   }
@@ -575,7 +608,14 @@ function saveSubscriptions(dbData: ServerSubscriptionDB) {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2), 'utf-8');
+    const newContent = JSON.stringify(dbData, null, 2);
+    if (fs.existsSync(DB_FILE)) {
+      const existingContent = fs.readFileSync(DB_FILE, 'utf-8');
+      if (existingContent === newContent) {
+        return; // Content is identical; skip disk write to prevent unnecessary file mtime updates
+      }
+    }
+    fs.writeFileSync(DB_FILE, newContent, 'utf-8');
   } catch (err) {
     console.error('Failed to save server subscriptions DB:', err);
   }
@@ -651,9 +691,11 @@ app.get('/api/subscription/status', async (req, res) => {
         .maybeSingle();
 
       if (!remoteErr && remoteSub) {
-        const trialStart = remoteSub.start_date || remoteSub.created_at || new Date().toISOString();
+        const trialStart = remoteSub.start_date || remoteSub.created_at || remoteSub.updated_at || '2026-01-01T00:00:00.000Z';
         const trialEnd = remoteSub.expiry_date || new Date(new Date(trialStart).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
         const graceEnds = remoteSub.grace_period_expiry || new Date(new Date(trialEnd).getTime() + graceDays * 24 * 60 * 60 * 1000).toISOString();
+
+        const existingSub = dbData.subscriptions[bizKey];
 
         const remoteState = {
           plan: remoteSub.plan || 'FREE',
@@ -668,7 +710,7 @@ app.get('/api/subscription/status', async (req, res) => {
           subscription_start: remoteSub.plan !== 'FREE' ? trialStart : null,
           subscription_end: remoteSub.plan !== 'FREE' ? trialEnd : null,
           expiryDate: trialEnd,
-          lastVerificationTime: new Date().toISOString(),
+          lastVerificationTime: existingSub?.state?.lastVerificationTime || remoteSub.updated_at || remoteSub.created_at || trialStart,
           verificationToken: remoteSub.verification_token || 'REMOTE_TOKEN',
           offlineGracePeriodEnds: graceEnds,
           gracePeriodExpiry: graceEnds,
@@ -677,7 +719,7 @@ app.get('/api/subscription/status', async (req, res) => {
           bonusDays: 0,
           graceDays,
           createdAt: remoteSub.created_at || trialStart,
-          updatedAt: remoteSub.updated_at || new Date().toISOString(),
+          updatedAt: remoteSub.updated_at || trialStart,
         };
 
         const evaluated = evaluateSubscription(remoteState, graceDays);
@@ -687,13 +729,16 @@ app.get('/api/subscription/status', async (req, res) => {
           subscription_status: evaluated.subscription_status
         };
 
-        dbData.subscriptions[bizKey] = {
-          state: updatedState,
-          history: dbData.subscriptions[bizKey]?.history || []
-        };
-        saveSubscriptions(dbData);
+        // Only persist if state does not exist or has structurally changed
+        if (!existingSub || JSON.stringify(existingSub.state) !== JSON.stringify(updatedState)) {
+          dbData.subscriptions[bizKey] = {
+            state: updatedState,
+            history: existingSub?.history || []
+          };
+          saveSubscriptions(dbData);
+        }
 
-        return res.json({ subscription: updatedState, history: dbData.subscriptions[bizKey].history });
+        return res.json({ subscription: updatedState, history: dbData.subscriptions[bizKey]?.history || [] });
       }
     }
     
@@ -814,14 +859,178 @@ app.post('/api/license/create', async (req: any, res: any) => {
 });
 
 /**
+ * GET /api/business/owner
+ * Returns existing Business, Subscription, and License for an owner if one exists.
+ */
+app.get('/api/business/owner', async (req: any, res: any) => {
+  try {
+    const ownerEmail = req.query.email ? String(req.query.email).trim().toLowerCase() : '';
+    const businessId = req.query.businessId ? String(req.query.businessId).trim().toUpperCase() : '';
+    if (!ownerEmail && !businessId) {
+      return res.status(400).json({ error: 'Owner email or businessId query parameter is required.' });
+    }
+
+    console.log(`Checking whether business '${businessId}' or owner '${ownerEmail}' exists in Supabase...`);
+
+    let existingBiz: any = null;
+
+    if (supabase) {
+      if (businessId) {
+        const { data, error } = await supabase
+          .from('businesses')
+          .select('*')
+          .eq('id', businessId)
+          .maybeSingle();
+
+        if (!error && data) {
+          existingBiz = {
+            id: data.id,
+            name: data.name,
+            type: data.type,
+            currency: data.currency,
+            timezone: data.timezone,
+            ownerName: data.owner_name,
+            email: data.owner_email,
+            phone: data.phone,
+            address: data.address,
+            taxNumber: data.tax_number,
+            logoUrl: data.logo_url,
+            isConfigured: data.is_configured ?? true,
+          };
+        }
+      }
+
+      if (!existingBiz && ownerEmail) {
+        const { data, error } = await supabase
+          .from('businesses')
+          .select('*')
+          .ilike('owner_email', ownerEmail)
+          .maybeSingle();
+
+        if (!error && data) {
+          existingBiz = {
+            id: data.id,
+            name: data.name,
+            type: data.type,
+            currency: data.currency,
+            timezone: data.timezone,
+            ownerName: data.owner_name,
+            email: data.owner_email,
+            phone: data.phone,
+            address: data.address,
+            taxNumber: data.tax_number,
+            logoUrl: data.logo_url,
+            isConfigured: data.is_configured ?? true,
+          };
+        }
+      }
+    }
+
+    if (!existingBiz) {
+      const dbData = loadSubscriptions();
+      for (const [bId, record] of Object.entries(dbData.subscriptions)) {
+        const recEmail = (record as any).ownerEmail ? (record as any).ownerEmail.toLowerCase() : '';
+        if ((businessId && bId === businessId) || (ownerEmail && recEmail === ownerEmail)) {
+          existingBiz = {
+            id: bId,
+            name: (record as any).businessName || 'My Business',
+            type: 'SERVICE',
+            currency: 'INR',
+            timezone: 'Asia/Kolkata',
+            ownerName: (record as any).ownerName || 'Owner',
+            email: ownerEmail || recEmail,
+            isConfigured: true,
+          };
+          break;
+        }
+      }
+    }
+
+    if (existingBiz) {
+      console.log(`Existing business found for '${ownerEmail}': ${existingBiz.id}.`);
+
+      let subscription: any = null;
+      if (supabase) {
+        const { data: subData } = await supabase
+          .from('subscriptions')
+          .select('*')
+          .eq('business_id', existingBiz.id)
+          .maybeSingle();
+        if (subData) {
+          subscription = {
+            plan: subData.plan || 'Free Trial',
+            status: subData.status || 'TRIAL',
+            subscription_status: subData.status === 'ACTIVE' ? 'active' : 'trial',
+            trial_start_date: subData.start_date,
+            trial_end_date: subData.expiry_date,
+            expiryDate: subData.expiry_date,
+            gracePeriodExpiry: subData.grace_period_expiry,
+            verificationToken: subData.verification_token,
+          };
+        }
+      }
+
+      let license: any = null;
+      if (supabase) {
+        const { data: licData } = await supabase
+          .from('licenses')
+          .select('*')
+          .eq('business_id', existingBiz.id)
+          .maybeSingle();
+        if (licData) {
+          license = licData;
+        }
+      }
+
+      return res.json({
+        exists: true,
+        business: existingBiz,
+        subscription,
+        license,
+      });
+    }
+
+    console.log(`No existing business found for owner '${ownerEmail}'.`);
+    return res.json({ exists: false });
+  } catch (err: any) {
+    console.error(`[Supabase Owner Check Error]`, err);
+    res.status(500).json({ error: err.message || 'Error checking owner business' });
+  }
+});
+
+const pendingRegistrationLocks = new Map<string, Promise<any>>();
+
+/**
  * POST /api/onboarding/complete-transaction
  * Executes sequential Business -> Trial -> License transaction using Business ID as common identifier.
+ * Idempotent: Never creates duplicate businesses for the same authenticated owner.
  */
 app.post('/api/onboarding/complete-transaction', async (req: any, res: any) => {
+  const { ownerEmail, businessId } = req.body;
+  const lockKey = ownerEmail ? String(ownerEmail).trim().toLowerCase() : businessId ? String(businessId).trim().toUpperCase() : '';
+
+  if (lockKey && pendingRegistrationLocks.has(lockKey)) {
+    console.log(`[Registration Mutex] In-flight registration detected for key '${lockKey}'. Awaiting existing transaction...`);
+    try {
+      const result = await pendingRegistrationLocks.get(lockKey);
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message || 'Registration transaction failed.' });
+    }
+  }
+
+  let resolveTransactionPromise: (val: any) => void = () => {};
+  let rejectTransactionPromise: (err: any) => void = () => {};
+  if (lockKey) {
+    const lockPromise = new Promise((resolve, reject) => {
+      resolveTransactionPromise = resolve;
+      rejectTransactionPromise = reject;
+    });
+    pendingRegistrationLocks.set(lockKey, lockPromise);
+  }
+
   try {
     const {
-      businessId,
-      ownerEmail,
       ownerName,
       businessName,
       businessType,
@@ -833,8 +1042,90 @@ app.post('/api/onboarding/complete-transaction', async (req: any, res: any) => {
     } = req.body;
 
     if (!businessName || !ownerName) {
-      return res.status(400).json({ error: 'Business Name and Owner Name are required.' });
+      const errRes = { error: 'Business Name and Owner Name are required.' };
+      rejectTransactionPromise(errRes);
+      return res.status(400).json(errRes);
     }
+
+    const cleanEmail = ownerEmail ? String(ownerEmail).trim().toLowerCase() : '';
+
+    console.log(`Checking whether owner '${cleanEmail || businessId || 'unknown'}' already owns a business...`);
+
+    let existingBiz: any = null;
+
+    if (businessId && supabase) {
+      const targetId = String(businessId).trim().toUpperCase();
+      const { data } = await supabase.from('businesses').select('*').eq('id', targetId).maybeSingle();
+      if (data) existingBiz = data;
+    }
+
+    if (!existingBiz && cleanEmail && supabase) {
+      const { data } = await supabase.from('businesses').select('*').ilike('owner_email', cleanEmail).maybeSingle();
+      if (data) existingBiz = data;
+    }
+
+    if (existingBiz) {
+      const bizId = existingBiz.id;
+      console.log(`Existing business found for '${cleanEmail || bizId}': ${bizId}. Returning existing record.`);
+
+      if (supabase) {
+        const { data: subData } = await supabase.from('subscriptions').select('id').eq('business_id', bizId).maybeSingle();
+        if (!subData) {
+          console.log(`Creating missing subscription for existing business: ${bizId}`);
+          const graceDays = getEnvNumber('VITE_GRACE_PERIOD_DAYS', 2);
+          const nowIso = new Date().toISOString();
+          const trialEndDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+          const gracePeriodEnd = new Date(Date.now() + (7 + graceDays) * 24 * 60 * 60 * 1000).toISOString();
+
+          await safeSyncSubscriptionToSupabase({
+            businessId: bizId,
+            plan: 'Free Trial',
+            status: 'TRIAL',
+            subscriptionId: bizId,
+            startDate: nowIso,
+            expiryDate: trialEndDate,
+            gracePeriodExpiry: gracePeriodEnd,
+            autoRenewEnabled: false,
+            verificationToken: `TRIAL_TOKEN_${bizId}`
+          });
+        }
+
+        const { data: licData } = await supabase.from('licenses').select('id').eq('business_id', bizId).maybeSingle();
+        if (!licData) {
+          console.log(`Creating missing license for existing business: ${bizId}`);
+          await safeSyncLicenseToSupabase({
+            businessId: bizId,
+            subscriptionId: bizId,
+            status: 'ACTIVE'
+          });
+        }
+      }
+
+      const successResponse = {
+        success: true,
+        businessId: bizId,
+        isExisting: true,
+        business: {
+          id: bizId,
+          name: existingBiz.name,
+          type: existingBiz.type || 'SERVICE',
+          currency: existingBiz.currency || 'INR',
+          timezone: existingBiz.timezone || 'Asia/Kolkata',
+          ownerName: existingBiz.owner_name,
+          ownerEmail: existingBiz.owner_email,
+          phone: existingBiz.phone,
+          address: existingBiz.address,
+          taxNumber: existingBiz.tax_number,
+          logoUrl: existingBiz.logo_url,
+          isConfigured: existingBiz.is_configured ?? true
+        }
+      };
+
+      resolveTransactionPromise(successResponse);
+      return res.json(successResponse);
+    }
+
+    console.log(`No existing business found for owner '${cleanEmail}'. Creating new business.`);
 
     const bizId = businessId ? String(businessId).trim().toUpperCase() : `CP-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
     const nowIso = new Date().toISOString();
@@ -847,7 +1138,7 @@ app.post('/api/onboarding/complete-transaction', async (req: any, res: any) => {
       currency: currency || 'INR',
       timezone: 'Asia/Kolkata',
       ownerName,
-      ownerEmail,
+      ownerEmail: cleanEmail,
       phone,
       address,
       taxNumber,
@@ -901,10 +1192,10 @@ app.post('/api/onboarding/complete-transaction', async (req: any, res: any) => {
       });
     }
 
-    // Return complete transaction result
-    return res.json({
+    const createdRes = {
       success: true,
       businessId: bizId,
+      isExisting: false,
       business: {
         id: bizId,
         name: businessName,
@@ -912,32 +1203,26 @@ app.post('/api/onboarding/complete-transaction', async (req: any, res: any) => {
         currency: currency || 'INR',
         timezone: 'Asia/Kolkata',
         ownerName,
-        ownerEmail,
+        ownerEmail: cleanEmail,
         phone,
         address,
         taxNumber,
         logoUrl,
-        isConfigured: true,
-      },
-      subscription: {
-        id: bizId,
-        plan: 'Free Trial',
-        status: 'TRIAL',
-        subscription_status: 'trial',
-        trial_start_date: trialStartDate,
-        trial_end_date: trialEndDate,
-        expiryDate: trialEndDate,
-        offlineGracePeriodEnds: gracePeriodEnd,
-        gracePeriodExpiry: gracePeriodEnd,
-        remaining_days: 7,
-        graceDays,
-        verificationToken: `TRIAL_TOKEN_${bizId}`
-      },
-      license: licSyncResult.license
-    });
+        isConfigured: true
+      }
+    };
+
+    resolveTransactionPromise(createdRes);
+    return res.json(createdRes);
   } catch (err: any) {
-    console.error('[Onboarding Complete Transaction Error]', err);
-    return res.status(500).json({ error: err.message || 'Onboarding transaction failed.' });
+    console.error(`[Onboarding Transaction Exception]`, err);
+    const errObj = { error: err.message || 'Transaction failed' };
+    rejectTransactionPromise(errObj);
+    return res.status(500).json(errObj);
+  } finally {
+    if (lockKey) {
+      pendingRegistrationLocks.delete(lockKey);
+    }
   }
 });
 
@@ -2050,9 +2335,6 @@ async function initFrontendMiddleware() {
     });
   }
 }
-app.get("/healthz", (req, res) => {
-  res.status(200).send("OK");
-});
 
 initFrontendMiddleware().then(() => {
   app.listen(PORT, "0.0.0.0", () => {

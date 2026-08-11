@@ -103,10 +103,8 @@ export const Login: React.FC = () => {
     setIsGoogleLoading(true);
     try {
       await loginWithGoogle();
-      navigate(from, { replace: true });
     } catch (err: any) {
       setError(err?.message || 'Google Authentication failed.');
-    } finally {
       setIsGoogleLoading(false);
     }
   };
@@ -313,48 +311,6 @@ export const Login: React.FC = () => {
               <span className="text-[9px] bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded font-bold uppercase">
                 Staff Access
               </span>
-            </div>
-
-            {/* Quick Demo Presets Banner */}
-            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 rounded-xl space-y-2">
-              <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wider block">
-                Quick Demo Presets (Test Accounts)
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStaffBusinessId('CP-DEMO99');
-                    setStaffUsername('manager_staff');
-                    setStaffPassword('sandbox_pass');
-                  }}
-                  className="px-2.5 py-1 bg-amber-100 dark:bg-amber-900/60 hover:bg-amber-200 text-amber-900 dark:text-amber-200 rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
-                >
-                  Demo Manager
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStaffBusinessId('CP-DEMO99');
-                    setStaffUsername('staff');
-                    setStaffPassword('sandbox_pass');
-                  }}
-                  className="px-2.5 py-1 bg-amber-100 dark:bg-amber-900/60 hover:bg-amber-200 text-amber-900 dark:text-amber-200 rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
-                >
-                  Demo Staff
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStaffBusinessId('CP-DEMO99');
-                    setStaffUsername('worker_staff');
-                    setStaffPassword('sandbox_pass');
-                  }}
-                  className="px-2.5 py-1 bg-amber-100 dark:bg-amber-900/60 hover:bg-amber-200 text-amber-900 dark:text-amber-200 rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
-                >
-                  Demo Worker
-                </button>
-              </div>
             </div>
 
             <form onSubmit={handleStaffLoginSubmit} className="space-y-4">

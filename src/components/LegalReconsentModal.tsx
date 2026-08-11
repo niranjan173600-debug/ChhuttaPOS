@@ -11,7 +11,7 @@ import { LegalPolicyModal } from './LegalPolicyModal';
 import { db } from '../database/db';
 
 export const LegalReconsentModal: React.FC = () => {
-  const { user, business, updateBusiness } = useAuth();
+  const { user, business, updateUser, updateBusiness } = useAuth();
   const [accepted, setAccepted] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -54,36 +54,15 @@ export const LegalReconsentModal: React.FC = () => {
         refund_policy_version: CURRENT_LEGAL_VERSIONS.refund_policy_version,
       };
 
-      // 1. Update user profile
-      const updatedUser = {
-        ...user,
-        ...legalData,
-      };
-      localStorage.setItem('chhuta_session_user', JSON.stringify(updatedUser));
-      await db.userProfiles.put({
-        id: updatedUser.id,
-        email: updatedUser.email,
-        role: updatedUser.role,
-        fullName: updatedUser.fullName,
-        phoneNumber: updatedUser.phoneNumber,
-        businessId: updatedUser.businessId,
-        createdAt: updatedUser.createdAt,
-        legal_consent: true,
-        legal_consent_timestamp: nowIso,
-        privacy_policy_version: legalData.privacy_policy_version,
-        terms_version: legalData.terms_version,
-        refund_policy_version: legalData.refund_policy_version,
-      });
+      // 1. Update user profile state & DB
+      await updateUser(legalData);
 
       // 2. Update business config if applicable
       if (business) {
         await updateBusiness(legalData);
       }
-
-      window.location.reload();
     } catch (err: any) {
       setValidationError(err?.message || 'Failed to update consent records.');
-    } finally {
       setIsSubmitting(false);
     }
   };

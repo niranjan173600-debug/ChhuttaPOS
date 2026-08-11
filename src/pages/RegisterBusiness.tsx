@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { BusinessType } from '../types';
@@ -24,15 +24,24 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LegalPolicyModal } from '../components/LegalPolicyModal';
+import { CredentialSummaryModal } from '../components/CredentialSummaryModal';
 
 export const RegisterBusiness: React.FC = () => {
-  const { registerBusiness, user } = useAuth();
+  const { registerBusiness, user, business } = useAuth();
   const navigate = useNavigate();
 
   // Wizard Steps: 0 = Core Details, 1 = Location & Contacts, 2 = Brand & Finalize
   const [step, setStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-detect existing business and navigate to dashboard unless viewing step 3 (credentials summary)
+  useEffect(() => {
+    if (business && business.id && step !== 3) {
+      console.log(`[RegisterBusiness] Active business '${business.id}' detected in AuthContext. Navigating to dashboard.`);
+      navigate('/', { replace: true });
+    }
+  }, [business, step, navigate]);
 
   // Form States
   const [businessName, setBusinessName] = useState('');
@@ -45,14 +54,17 @@ export const RegisterBusiness: React.FC = () => {
   const [address, setAddress] = useState('');
   const [logoUrl, setLogoUrl] = useState('');
 
+  // Credential summary modal state
+  const [createdCreds, setCreatedCreds] = useState<{
+    businessId: string;
+    ownerUsername: string;
+    appPassword: string;
+    businessName: string;
+  } | null>(null);
+
   // Legal Consent States
   const [legalConsent, setLegalConsent] = useState(false);
   const [activePolicyModal, setActivePolicyModal] = useState<'privacy' | 'terms' | 'refund' | null>(null);
-
-  const [previewId] = useState(() => {
-    const random = Math.random().toString(36).substr(2, 6).toUpperCase();
-    return `CP-${random}`;
-  });
 
   const handleNext = () => {
     if (step === 0) {
@@ -72,6 +84,7 @@ export const RegisterBusiness: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!businessName.trim() || !ownerName.trim()) {
       setError('Required fields are missing.');
       setStep(0);
@@ -87,7 +100,7 @@ export const RegisterBusiness: React.FC = () => {
     setError(null);
 
     try {
-      await registerBusiness({
+      const res: any = await registerBusiness({
         name: businessName,
         type: businessType,
         currency: 'INR',
@@ -100,11 +113,13 @@ export const RegisterBusiness: React.FC = () => {
         email: email || undefined,
       });
 
-      // Show success step first, then navigate
       setStep(3);
-      setTimeout(() => {
-        navigate('/');
-      }, 2000);
+      setCreatedCreds({
+        businessId: res.id || business?.id || '',
+        ownerUsername: res.ownerUsername || 'owner',
+        appPassword: res.appPassword || 'X9K4-PQ7M-L2TR',
+        businessName: res.name || businessName,
+      });
     } catch (err: any) {
       setError(err?.message || 'Failed to register business workspace.');
       setIsSubmitting(false);
@@ -154,7 +169,7 @@ export const RegisterBusiness: React.FC = () => {
           </div>
           <div className="text-right hidden sm:block">
             <span className="text-xs text-slate-400 dark:text-slate-500 font-bold uppercase">
-              ID: <span className="text-indigo-600 dark:text-indigo-400 font-mono">{previewId}</span>
+              ID: <span className="text-indigo-600 dark:text-indigo-400 font-mono">{business?.id || createdCreds?.businessId || 'Pending'}</span>
             </span>
           </div>
         </div>
@@ -405,10 +420,10 @@ export const RegisterBusiness: React.FC = () => {
                   <div className="pt-3 border-t border-indigo-100/60 dark:border-indigo-900/30 flex items-center justify-between text-xs">
                     <div>
                       <span className="text-[9px] text-slate-400 dark:text-slate-500 block uppercase tracking-tight">Assigned Business ID</span>
-                      <strong className="text-slate-800 dark:text-slate-200 font-mono text-sm uppercase">{previewId}</strong>
+                      <strong className="text-slate-500 dark:text-slate-400 font-mono text-xs italic">Not assigned yet (generated on server)</strong>
                     </div>
                     <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
-                      Commercial Sandbox
+                      Pending Onboarding
                     </span>
                   </div>
                 </div>
@@ -482,7 +497,7 @@ export const RegisterBusiness: React.FC = () => {
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 dark:text-white">Workspace Configured!</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto leading-relaxed">
-                  Your business <strong className="text-slate-800 dark:text-white">{businessName}</strong> with unique code <strong>{previewId}</strong> has been successfully synchronized and registered.
+                  Your business <strong className="text-slate-800 dark:text-white">{businessName}</strong> with unique code <strong>{createdCreds?.businessId || business?.id || ''}</strong> has been successfully synchronized and registered.
                 </p>
                 <div className="text-xs text-indigo-600 dark:text-indigo-400 font-bold animate-pulse">
                   Redirecting to your active console dashboard...
@@ -533,6 +548,19 @@ export const RegisterBusiness: React.FC = () => {
       <LegalPolicyModal 
         type={activePolicyModal} 
         onClose={() => setActivePolicyModal(null)} 
+      />
+
+      <CredentialSummaryModal
+        isOpen={!!createdCreds}
+        businessId={createdCreds?.businessId || ''}
+        ownerUsername={createdCreds?.ownerUsername || ''}
+        appPassword={createdCreds?.appPassword || ''}
+        businessName={createdCreds?.businessName || businessName}
+        authMethod={user?.email ? `Email / Google (${user.email})` : 'Google OAuth / Email'}
+        onConfirm={() => {
+          setCreatedCreds(null);
+          navigate('/');
+        }}
       />
     </div>
   );

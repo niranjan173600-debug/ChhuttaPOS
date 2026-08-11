@@ -82,22 +82,30 @@ export class SupabaseService {
   /**
    * Authenticates user via email (Owner login).
    */
-  async loginWithEmail(email: string, password_placeholder: string): Promise<UserProfile> {
+  async loginWithEmail(email: string, pass: string): Promise<UserProfile> {
     const cleanEmail = email.trim();
+    const cleanPass = pass ? pass.trim() : '';
+
     if (!cleanEmail || !cleanEmail.includes('@')) {
       throw new Error('Please enter a valid email address.');
+    }
+    if (!cleanPass) {
+      throw new Error('Please enter your password.');
     }
 
     if (supabase && SUPABASE_CONFIG.isConfigured) {
       console.log(`[Supabase Auth] Attempting signInWithPassword for email: ${cleanEmail}`);
       const { data, error } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
-        password: password_placeholder || 'DefaultPassword123!',
+        password: cleanPass,
       });
 
       if (error) {
-        console.warn(`[Supabase Auth Warning] signInWithPassword error: ${error.message}. Falling back to offline authentication mode.`);
-      } else if (data?.user) {
+        console.error(`[Supabase Auth Error] ${error.message}`);
+        throw new Error(error.message || 'Authentication failed. Please check your email and password.');
+      }
+
+      if (data?.user) {
         const u = data.user;
         const user: UserProfile = {
           id: u.id,
@@ -113,104 +121,76 @@ export class SupabaseService {
       }
     }
 
-    // Offline / Fallback login
-    const user: UserProfile = {
-      id: `usr_${Math.random().toString(36).substr(2, 9)}`,
-      email: cleanEmail,
-      role: UserRole.OWNER,
-      fullName: cleanEmail.split('@')[0].toUpperCase(),
-      createdAt: new Date().toISOString(),
-    };
-
-    this.currentSessionUser = user;
-    localStorage.setItem('chhuta_session_user', JSON.stringify(user));
-    return user;
+    throw new Error('Supabase Auth is not configured. Please verify your Supabase URL and key.');
   }
 
   /**
    * Authenticates staff members with Business ID, Username/Email and Password.
+   * Validates strictly against accounts created by the business owner.
    */
   async loginStaff(businessId: string, usernameOrEmail: string, pass: string): Promise<UserProfile> {
-    await new Promise((resolve) => setTimeout(resolve, 800));
-
     const upperBusId = (businessId || '').trim().toUpperCase();
     const cleanUser = (usernameOrEmail || '').trim();
     const cleanPass = (pass || '').trim();
 
     if (!upperBusId || !cleanUser || !cleanPass) {
-      throw new Error('Business ID, User ID/Username, and Password are required.');
+      throw new Error('Business ID, Username/Email, and Password are all required.');
     }
 
-    // 1. Validate Business Code before login.
-    let matchedBiz = await db.businessConfigs.get(upperBusId);
-    if (!matchedBiz) {
-      // Auto-provision a mock config for staff testing convenience
-      matchedBiz = {
-        id: upperBusId,
-        name: 'Staff Outlet Console',
-        type: 'HYBRID',
-        currency: 'INR',
-        timezone: 'Asia/Kolkata',
-        ownerName: 'Central Admin',
-        isConfigured: 1,
-      };
-      await db.businessConfigs.put(matchedBiz);
+    // 1. Validate Business Code against Supabase / Cloud API
+    let bizExists = false;
+    try {
+      const ownerRes = await fetch(`/api/business/owner?businessId=${encodeURIComponent(upperBusId)}`);
+      if (ownerRes.ok) {
+        const ownerData = await ownerRes.json();
+        if (ownerData.exists) {
+          bizExists = true;
+        }
+      }
+    } catch (e) {
+      console.warn('Cloud API business lookup failed, checking Dexie fallback:', e);
     }
 
-    // 2. Fetch from localStorage mock database and ensure default sandbox presets exist
-    let staffJson = localStorage.getItem('chhuta_mock_staff');
-    let staffList = staffJson ? JSON.parse(staffJson) : [];
+    if (!bizExists) {
+      const matchedBiz = await db.businessConfigs.get(upperBusId);
+      if (matchedBiz) {
+        bizExists = true;
+      }
+    }
 
-    const demoManagerExists = staffList.some((s: any) => s.username === 'manager_staff' && (s.businessId || '').trim().toUpperCase() === upperBusId);
-    const demoStaffExists = staffList.some((s: any) => (s.username === 'staff' || s.username === 'cashier_staff') && (s.businessId || '').trim().toUpperCase() === upperBusId);
-    const demoWorkerExists = staffList.some((s: any) => s.username === 'worker_staff' && (s.businessId || '').trim().toUpperCase() === upperBusId);
+    if (!bizExists) {
+      throw new Error('Invalid Business ID. Business workspace not found.');
+    }
 
-    if (!demoManagerExists || !demoStaffExists || !demoWorkerExists) {
-      const demoStaff = [];
-      if (!demoManagerExists) {
-        demoStaff.push({
-          id: `ST-MGR-${upperBusId}`,
-          name: 'Demo Manager',
-          email: 'manager_staff@store.com',
-          username: 'manager_staff',
-          role: 'MANAGER',
-          businessId: upperBusId,
-          passwordHash: 'sandbox_pass',
-          status: 'ACTIVE',
-          lastLogin: null,
-          createdAt: new Date().toISOString()
-        });
-      }
-      if (!demoStaffExists) {
-        demoStaff.push({
-          id: `ST-STF-${upperBusId}`,
-          name: 'Demo Staff Cashier',
-          email: 'staff@store.com',
-          username: 'staff',
-          role: 'STAFF',
-          businessId: upperBusId,
-          passwordHash: 'sandbox_pass',
-          status: 'ACTIVE',
-          lastLogin: null,
-          createdAt: new Date().toISOString()
-        });
-      }
-      if (!demoWorkerExists) {
-        demoStaff.push({
-          id: `ST-WRK-${upperBusId}`,
-          name: 'Demo Worker',
-          email: 'worker_staff@store.com',
-          username: 'worker_staff',
-          role: 'WORKER',
-          businessId: upperBusId,
-          passwordHash: 'sandbox_pass',
-          status: 'ACTIVE',
-          lastLogin: null,
-          createdAt: new Date().toISOString()
-        });
-      }
-      staffList = [...staffList, ...demoStaff];
-      localStorage.setItem('chhuta_mock_staff', JSON.stringify(staffList));
+    // 2. Fetch staff accounts created by owner from storage
+    const staffJson = localStorage.getItem('chhuta_staff_accounts') || localStorage.getItem('chhuta_mock_staff') || '[]';
+    let staffList: any[] = [];
+    try {
+      staffList = JSON.parse(staffJson);
+    } catch (e) {
+      staffList = [];
+    }
+
+    // Also check Dexie workerProfiles
+    try {
+      const dexieWorkers = await db.workerProfiles.toArray();
+      dexieWorkers.forEach(w => {
+        if (!staffList.some(s => s.id === w.id || s.id === w.staffAccountId)) {
+          staffList.push({
+            id: w.staffAccountId || w.id,
+            name: w.name,
+            username: w.username || w.name,
+            email: w.email,
+            role: w.role,
+            businessId: upperBusId,
+            passwordHash: (w as any).passwordHash || (w as any).password,
+            status: w.status,
+            createdAt: w.createdAt
+          });
+        }
+      });
+    } catch (err) {
+      console.warn('Error reading Dexie workers during staff login:', err);
     }
 
     // Look up staff account by Staff ID, Username, Email, Phone, or Name under upperBusId
@@ -226,33 +206,14 @@ export class SupabaseService {
     });
 
     if (matchingStaff.length === 0) {
-      throw new Error('Invalid User ID. No staff member found for this Business ID.');
+      throw new Error('Invalid Username or Business ID. Staff account not found.');
     }
 
-    // Verify Password
+    // Verify Password strictly
     const staff = matchingStaff.find((s: any) => {
       const storedPass = s.passwordHash || s.password || s.tempPassword || s.pass || s.pin;
-      
-      // 1. Direct string match or trimmed match
-      if (storedPass === pass || storedPass === cleanPass) return true;
-      if (s.passwordHash === pass || s.passwordHash === cleanPass) return true;
-      if (s.password === pass || s.password === cleanPass) return true;
-      if (s.tempPassword === pass || s.tempPassword === cleanPass) return true;
-
-      // 2. Case-insensitive match
-      if (storedPass && (storedPass.toString().toLowerCase() === pass.toLowerCase() || storedPass.toString().toLowerCase() === cleanPass.toLowerCase())) return true;
-
-      // 3. Demo or default preset fallback
-      const isDemoAccount = s.passwordHash === 'sandbox_pass' || s.password === 'sandbox_pass' || s.isDemo ||
-                            s.id?.startsWith('ST-MGR-') || s.id?.startsWith('ST-WRK-') || s.id?.startsWith('ST-STF-') ||
-                            s.username === 'manager_staff' || s.username === 'worker_staff' || s.username === 'staff';
-
-      const commonDemoPasswords = ['sandbox_pass', 'sandbox', '123456', 'password', 'pass', 'admin', '1234', '0000', 'demo'];
-      if (isDemoAccount && (commonDemoPasswords.includes(cleanPass.toLowerCase()) || cleanPass.length > 0)) {
-        return true;
-      }
-
-      return false;
+      if (!storedPass) return false;
+      return storedPass === pass || storedPass === cleanPass || storedPass.toString().toLowerCase() === cleanPass.toLowerCase();
     });
 
     if (!staff) {
@@ -270,13 +231,13 @@ export class SupabaseService {
       }
       return s;
     });
-    localStorage.setItem('chhuta_mock_staff', JSON.stringify(updatedStaff));
+    localStorage.setItem('chhuta_staff_accounts', JSON.stringify(updatedStaff));
 
     const user: UserProfile = {
       id: staff.id,
       email: staff.email || `${staff.username || staff.id}@store.com`,
       role: staff.role as UserRole,
-      fullName: staff.name,
+      fullName: staff.name || staff.fullName || staff.username,
       businessId: upperBusId,
       createdAt: staff.createdAt || new Date().toISOString(),
       mustChangePassword: staff.status === 'FORCE_CHANGE_PASSWORD',
@@ -293,9 +254,7 @@ export class SupabaseService {
    * Updates staff password on first login.
    */
   async changeStaffPassword(staffId: string, newPass: string): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    
-    const staffJson = localStorage.getItem('chhuta_mock_staff') || '[]';
+    const staffJson = localStorage.getItem('chhuta_staff_accounts') || localStorage.getItem('chhuta_mock_staff') || '[]';
     const staffList = JSON.parse(staffJson);
     
     let updated = false;
@@ -315,7 +274,7 @@ export class SupabaseService {
       throw new Error('Staff member not found.');
     }
     
-    localStorage.setItem('chhuta_mock_staff', JSON.stringify(updatedStaff));
+    localStorage.setItem('chhuta_staff_accounts', JSON.stringify(updatedStaff));
     
     // Also update session user if active
     if (this.currentSessionUser && this.currentSessionUser.id === staffId) {
@@ -326,31 +285,44 @@ export class SupabaseService {
   }
 
   /**
-   * Integrates Google Login using Supabase Authentication.
+   * Integrates Google Login using Supabase Authentication OAuth flow.
    */
-  async loginWithGoogle(): Promise<UserProfile> {
-    await new Promise((resolve) => setTimeout(resolve, 900));
-
-    const user: UserProfile = {
-      id: `usr_gg_${Math.random().toString(36).substr(2, 9)}`,
-      email: 'google.owner@store.com',
-      role: UserRole.OWNER,
-      fullName: 'Google Business Owner',
-      createdAt: new Date().toISOString(),
-    };
-
-    this.currentSessionUser = user;
-    localStorage.setItem('chhuta_session_user', JSON.stringify(user));
-    return user;
+  async loginWithGoogle(): Promise<void> {
+    if (supabase && SUPABASE_CONFIG.isConfigured) {
+      console.log('[Supabase Auth] Initiating Google OAuth flow...');
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}`,
+          queryParams: {
+            prompt: 'select_account',
+          },
+        },
+      });
+      if (error) {
+        throw new Error(`Google login error: ${error.message}`);
+      }
+    } else {
+      throw new Error('Supabase Auth is not configured. Please add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to environment variables.');
+    }
   }
 
   /**
    * Creates a new user profile inside Supabase Auth.
    */
-  async signupWithEmail(email: string, fullName: string, role: UserRole): Promise<UserProfile> {
+  async signupWithEmail(email: string, pass: string, fullName: string, role: UserRole): Promise<UserProfile> {
     const cleanEmail = email.trim();
-    if (!cleanEmail || !cleanEmail.includes('@') || !fullName) {
-      throw new Error('Please provide valid profile details.');
+    const cleanPass = pass ? pass.trim() : '';
+    const cleanName = fullName.trim();
+
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      throw new Error('Please enter a valid email address.');
+    }
+    if (!cleanPass || cleanPass.length < 6) {
+      throw new Error('Password must be at least 6 characters long.');
+    }
+    if (!cleanName) {
+      throw new Error('Please provide your full name.');
     }
 
     const nowIso = new Date().toISOString();
@@ -359,24 +331,27 @@ export class SupabaseService {
       console.log(`[Supabase Auth] Executing signUp for email: ${cleanEmail}`);
       const { data, error } = await supabase.auth.signUp({
         email: cleanEmail,
-        password: 'DefaultPassword123!',
+        password: cleanPass,
         options: {
           data: {
-            fullName,
+            fullName: cleanName,
             role,
           }
         }
       });
 
       if (error) {
-        console.warn(`[Supabase Auth Warning] signUp error: ${error.message}. Proceeding with local offline profile creation.`);
-      } else if (data?.user) {
+        console.error(`[Supabase Auth SignUp Error] ${error.message}`);
+        throw new Error(error.message || 'Failed to create account via Supabase Auth.');
+      }
+
+      if (data?.user) {
         const u = data.user;
         const user: UserProfile = {
           id: u.id,
           email: u.email || cleanEmail,
           role,
-          fullName,
+          fullName: cleanName,
           createdAt: u.created_at || nowIso,
           legal_consent: true,
           legal_consent_timestamp: nowIso,
@@ -390,22 +365,7 @@ export class SupabaseService {
       }
     }
 
-    const user: UserProfile = {
-      id: `usr_${Math.random().toString(36).substr(2, 9)}`,
-      email: cleanEmail,
-      role,
-      fullName,
-      createdAt: nowIso,
-      legal_consent: true,
-      legal_consent_timestamp: nowIso,
-      privacy_policy_version: 'v1.0',
-      terms_version: 'v1.0',
-      refund_policy_version: 'v1.0',
-    };
-
-    this.currentSessionUser = user;
-    localStorage.setItem('chhuta_session_user', JSON.stringify(user));
-    return user;
+    throw new Error('Supabase Auth is not configured. Unable to register user.');
   }
 
   /**

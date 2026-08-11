@@ -69,8 +69,8 @@ export async function syncAndMigrateWorkerProfiles(currentUserId?: string, curre
       }
     }
 
-    // 3. Migrate existing staff records from localStorage 'chhuta_mock_staff'
-    const staffJson = localStorage.getItem('chhuta_mock_staff');
+    // 3. Migrate existing staff records from localStorage 'chhuta_staff_accounts' or 'chhuta_mock_staff'
+    const staffJson = localStorage.getItem('chhuta_staff_accounts') || localStorage.getItem('chhuta_mock_staff');
     if (staffJson) {
       const staffList = JSON.parse(staffJson);
       for (const staff of staffList) {
@@ -91,57 +91,6 @@ export async function syncAndMigrateWorkerProfiles(currentUserId?: string, curre
           };
           workerMap.set(staffWorkerId, newWorker);
           existingWorkers.push(newWorker);
-          modified = true;
-        }
-      }
-    }
-
-    // If default demo workers needed when no non-owner staff exist
-    const staffWorkers = existingWorkers.filter(w => w.role !== 'OWNER' && w.id !== `WORKER-${currentUserId}`);
-    if (staffWorkers.length === 0) {
-      const defaultWorkers: DbWorkerProfile[] = [
-        {
-          id: 'WORKER-101',
-          name: 'Ramesh Kumar',
-          role: 'Hair Stylist',
-          phone: '+91 98765 43210',
-          status: 'ACTIVE',
-          loginEnabled: false,
-          dailyWage: 600,
-          commissionPercentage: 5,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        },
-        {
-          id: 'WORKER-102',
-          name: 'Rahul Sen',
-          role: 'Senior Stylist',
-          phone: '+91 98765 12345',
-          status: 'ACTIVE',
-          loginEnabled: false,
-          dailyWage: 700,
-          commissionPercentage: 5,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        },
-        {
-          id: 'WORKER-103',
-          name: 'Shiva Kumar',
-          role: 'Washer & Assistant',
-          phone: '+91 98123 45678',
-          status: 'ACTIVE',
-          loginEnabled: false,
-          dailyWage: 400,
-          commissionPercentage: 3,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
-      ];
-
-      for (const dw of defaultWorkers) {
-        if (!workerMap.has(dw.id)) {
-          workerMap.set(dw.id, dw);
-          existingWorkers.push(dw);
           modified = true;
         }
       }

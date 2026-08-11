@@ -66,7 +66,8 @@ import {
   UserCheck,
   DollarSign,
   Award,
-  Smartphone
+  Smartphone,
+  Eye
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useNavigate } from 'react-router-dom';
@@ -198,6 +199,107 @@ export const Settings: React.FC<SettingsProps> = ({ defaultTab }) => {
   const [newStaffEmail, setNewStaffEmail] = useState('');
   const [newStaffPhone, setNewStaffPhone] = useState('');
   const [newStaffRole, setNewStaffRole] = useState('STAFF');
+
+  // Owner Card States & Helper Functions
+  const [revealOwnerPassword, setRevealOwnerPassword] = useState(false);
+  const [ownerCardCreds, setOwnerCardCreds] = useState<{
+    businessId: string;
+    username: string;
+    password: string;
+    authMethod: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (business?.id) {
+      const savedCreds = localStorage.getItem(`chhuta_owner_creds_${business.id}`);
+      if (savedCreds) {
+        try {
+          const parsed = JSON.parse(savedCreds);
+          setOwnerCardCreds({
+            businessId: business.id,
+            username: parsed.ownerUsername || 'owner',
+            password: parsed.appPassword || 'X9K4-PQ7M-L2TR',
+            authMethod: parsed.primaryAuthMethod || 'Google OAuth / Email',
+          });
+          return;
+        } catch (e) {}
+      }
+
+      const staffJson = localStorage.getItem('chhuta_staff_accounts') || localStorage.getItem('chhuta_mock_staff') || '[]';
+      try {
+        const staffList = JSON.parse(staffJson);
+        const ownerAcc = staffList.find((s: any) => s.role === 'OWNER' && (s.businessId === business.id || !s.businessId));
+        if (ownerAcc) {
+          setOwnerCardCreds({
+            businessId: business.id,
+            username: ownerAcc.username || 'owner',
+            password: ownerAcc.passwordHash || ownerAcc.password || 'X9K4-PQ7M-L2TR',
+            authMethod: 'Google OAuth / Email',
+          });
+        }
+      } catch (e) {}
+    }
+  }, [business?.id]);
+
+  const handleGenerateNewAppPassword = () => {
+    if (!business?.id) return;
+    const charSet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const getRandomBlock = (len: number) => Array.from({ length: len }, () => charSet[Math.floor(Math.random() * charSet.length)]).join('');
+    const newPass = `${getRandomBlock(4)}-${getRandomBlock(4)}-${getRandomBlock(4)}`;
+
+    const currentCreds = ownerCardCreds || {
+      businessId: business.id,
+      username: (business.email || user?.email || 'owner').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '') || 'owner',
+      password: newPass,
+      authMethod: 'Google OAuth / Email',
+    };
+
+    const updatedCreds = {
+      ...currentCreds,
+      businessId: business.id,
+      password: newPass,
+    };
+
+    setOwnerCardCreds(updatedCreds);
+    localStorage.setItem(`chhuta_owner_creds_${business.id}`, JSON.stringify({
+      businessId: business.id,
+      ownerUsername: updatedCreds.username,
+      appPassword: newPass,
+      primaryAuthMethod: updatedCreds.authMethod,
+      updatedAt: new Date().toISOString(),
+    }));
+
+    const staffJson = localStorage.getItem('chhuta_staff_accounts') || localStorage.getItem('chhuta_mock_staff') || '[]';
+    try {
+      let staffList = JSON.parse(staffJson);
+      let updated = false;
+      staffList = staffList.map((s: any) => {
+        if (s.role === 'OWNER' && (s.businessId === business.id || !s.businessId)) {
+          updated = true;
+          return { ...s, passwordHash: newPass };
+        }
+        return s;
+      });
+      if (!updated) {
+        staffList.unshift({
+          id: `ST-OWNER-${business.id}`,
+          name: business.ownerName || 'Owner',
+          email: business.email || user?.email || '',
+          username: updatedCreds.username,
+          role: 'OWNER',
+          businessId: business.id,
+          passwordHash: newPass,
+          status: 'ACTIVE',
+          loginEnabled: true,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      localStorage.setItem('chhuta_staff_accounts', JSON.stringify(staffList));
+      localStorage.setItem('chhuta_mock_staff', JSON.stringify(staffList));
+    } catch (e) {}
+
+    showNotification(`New App Password Generated: ${newPass}. Save it securely!`);
+  };
 
   // Sub-tab navigation inside Staff Management
   const [staffSubTab, setStaffSubTab] = useState<'registry' | 'permissions' | 'advances'>('registry');
@@ -440,8 +542,9 @@ export const Settings: React.FC<SettingsProps> = ({ defaultTab }) => {
         createdAt: new Date().toISOString(),
       };
 
-      const existingStaff = JSON.parse(localStorage.getItem('chhuta_mock_staff') || '[]');
+      const existingStaff = JSON.parse(localStorage.getItem('chhuta_staff_accounts') || localStorage.getItem('chhuta_mock_staff') || '[]');
       const updatedStaff = [...existingStaff, newStaffAccount];
+      localStorage.setItem('chhuta_staff_accounts', JSON.stringify(updatedStaff));
       localStorage.setItem('chhuta_mock_staff', JSON.stringify(updatedStaff));
       setStaffList(updatedStaff);
 
@@ -1935,6 +2038,127 @@ export const Settings: React.FC<SettingsProps> = ({ defaultTab }) => {
               {/* SUB-TAB 1: Staff Registry */}
               {staffSubTab === 'registry' && (
                 <>
+
+              {/* OWNER CREDENTIALS CARD (Visible only to authenticated Owner) */}
+              {isOwner && (
+                <div className="p-5 rounded-2xl border-2 border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 bg-indigo-600 text-white rounded-xl">
+                        <Key size={18} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                          Owner Business Credentials
+                        </h3>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                          Secure access credentials for Business ID login across all terminals.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[9px] bg-indigo-600 text-white font-extrabold px-2.5 py-1 rounded-md uppercase tracking-wider">
+                      OWNER ONLY
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-white dark:bg-slate-900 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40">
+                    {/* Business ID */}
+                    <div className="space-y-1">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Business ID</span>
+                      <div className="flex items-center justify-between font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-slate-950 p-2 rounded-lg border border-slate-200 dark:border-slate-800">
+                        <span>{business?.id || 'CHP-WORKSPACE'}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(business?.id || '');
+                            showNotification('Business ID copied to clipboard');
+                          }}
+                          className="text-slate-400 hover:text-indigo-600 cursor-pointer"
+                          title="Copy Business ID"
+                        >
+                          <Copy size={14} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Owner Username */}
+                    <div className="space-y-1">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Owner Username</span>
+                      <div className="flex items-center justify-between font-mono font-bold text-xs text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-950 p-2 rounded-lg border border-slate-200 dark:border-slate-800">
+                        <span>{ownerCardCreds?.username || (business?.ownerName || 'owner').toLowerCase().replace(/[^a-z0-9]/g, '')}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(ownerCardCreds?.username || '');
+                            showNotification('Owner Username copied to clipboard');
+                          }}
+                          className="text-slate-400 hover:text-indigo-600 cursor-pointer"
+                          title="Copy Owner Username"
+                        >
+                          <Copy size={14} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* App Password */}
+                    <div className="space-y-1">
+                      <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">App Password</span>
+                      <div className="flex items-center justify-between font-mono font-bold text-xs text-amber-900 dark:text-amber-200 bg-amber-50/50 dark:bg-amber-950/30 p-2 rounded-lg border border-amber-200/60 dark:border-amber-900/40">
+                        <span>{revealOwnerPassword ? (ownerCardCreds?.password || '••••••••••••') : '••••••••••••'}</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setRevealOwnerPassword(!revealOwnerPassword)}
+                            className="text-amber-700 dark:text-amber-400 hover:text-amber-900 cursor-pointer p-0.5"
+                            title={revealOwnerPassword ? 'Hide Password' : 'Reveal Password'}
+                          >
+                            <Eye size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(ownerCardCreds?.password || '');
+                              showNotification('App Password copied to clipboard');
+                            }}
+                            className="text-amber-700 dark:text-amber-400 hover:text-amber-900 cursor-pointer p-0.5"
+                            title="Copy App Password"
+                          >
+                            <Copy size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 italic">
+                      Use Business ID + Owner Username + App Password for terminal logins.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const txt = `ChhuttaPOS Owner Credentials:\nBusiness ID: ${business?.id}\nUsername: ${ownerCardCreds?.username}\nApp Password: ${ownerCardCreds?.password}`;
+                          navigator.clipboard.writeText(txt);
+                          showNotification('Owner credentials summary copied to clipboard!');
+                        }}
+                        className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 text-slate-700 dark:text-slate-300 text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <Copy size={13} />
+                        Copy All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleGenerateNewAppPassword}
+                        className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <RefreshCw size={13} />
+                        Generate New App Password
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* MANAGER PERMISSION TOGGLE CARD (Owner Only) */}
               {user?.role === 'OWNER' && (

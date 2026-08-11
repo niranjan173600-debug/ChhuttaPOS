@@ -21,21 +21,32 @@ import {
   Sparkles,
   ArrowRight,
   CheckCircle2,
-  Loader2
+  Loader2,
+  Chrome
 } from 'lucide-react';
 import { LegalPolicyModal } from '../components/LegalPolicyModal';
+import { CredentialSummaryModal } from '../components/CredentialSummaryModal';
 
 export const Signup: React.FC = () => {
-  const { signup, registerBusiness, user } = useAuth();
+  const { signup, registerBusiness, loginWithGoogle, user } = useAuth();
   const navigate = useNavigate();
 
   // Stage 1 vs Stage 2 state
   const [stage, setStage] = useState<1 | 2>(1);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   // Stage 1 Inputs
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
+  // Credential summary modal state
+  const [createdCreds, setCreatedCreds] = useState<{
+    businessId: string;
+    ownerUsername: string;
+    appPassword: string;
+    businessName: string;
+  } | null>(null);
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState<UserRole>(UserRole.OWNER);
   const [legalConsent, setLegalConsent] = useState(false);
@@ -79,7 +90,7 @@ export const Signup: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      await signup(email, fullName, role);
+      await signup(email, password, fullName, role);
       setOwnerName(fullName);
       setStage(2);
     } catch (err: any) {
@@ -103,37 +114,12 @@ export const Signup: React.FC = () => {
     setActiveStep(1);
 
     try {
-      // Execute 3-step sequential transaction via server endpoint
-      const resp = await fetch('/api/onboarding/complete-transaction', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ownerEmail: email,
-          ownerName: ownerName || fullName,
-          businessName,
-          businessType,
-          currency,
-          phone,
-          address,
-          taxNumber,
-          logoUrl
-        })
-      });
-
-      const data = await resp.json();
-
-      if (!resp.ok || !data.success) {
-        throw new Error(data.error || 'Transaction failed. Business creation stopped.');
-      }
-
+      setActiveStep(1);
       setActiveStep(2);
-      await new Promise(r => setTimeout(r, 400));
-
       setActiveStep(3);
-      await new Promise(r => setTimeout(r, 400));
 
-      // Also save in local AuthContext state
-      await registerBusiness({
+      // Execute single, idempotent registration flow via registerBusiness
+      const regRes: any = await registerBusiness({
         name: businessName,
         type: businessType,
         currency,
@@ -144,13 +130,16 @@ export const Signup: React.FC = () => {
         taxNumber,
         logoUrl,
         email
-      }, data.businessId);
+      });
 
       setActiveStep(4);
-      await new Promise(r => setTimeout(r, 300));
 
-      // Step 4: Redirect to Dashboard
-      navigate('/');
+      setCreatedCreds({
+        businessId: regRes.id,
+        ownerUsername: regRes.ownerUsername || 'owner',
+        appPassword: regRes.appPassword || 'X9K4-PQ7M-L2TR',
+        businessName: businessName,
+      });
     } catch (err: any) {
       setError(err?.message || 'Business onboarding failed.');
       setActiveStep(0);
@@ -187,7 +176,37 @@ export const Signup: React.FC = () => {
 
         {/* STAGE 1: ACCOUNT CREATION FORM */}
         {stage === 1 && (
-          <form onSubmit={handleAccountCreation} className="space-y-4">
+          <div className="space-y-4">
+            {/* Google OAuth Option */}
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  setError(null);
+                  setIsGoogleLoading(true);
+                  try {
+                    await loginWithGoogle();
+                  } catch (err: any) {
+                    setError(err?.message || 'Google registration failed.');
+                    setIsGoogleLoading(false);
+                  }
+                }}
+                disabled={isGoogleLoading}
+                className="w-full min-h-[48px] inline-flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900 text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer"
+                id="signup-google-btn"
+              >
+                <Chrome size={16} className="text-red-500" />
+                {isGoogleLoading ? 'Connecting Google Account...' : 'Continue with Google'}
+              </button>
+
+              <div className="relative flex py-2 items-center">
+                <div className="flex-grow border-t border-slate-150 dark:border-slate-800"></div>
+                <span className="flex-shrink mx-4 text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest">or email registration</span>
+                <div className="flex-grow border-t border-slate-150 dark:border-slate-800"></div>
+              </div>
+            </div>
+
+            <form onSubmit={handleAccountCreation} className="space-y-4">
             <div>
               <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
                 Full Name
@@ -356,6 +375,7 @@ export const Signup: React.FC = () => {
               </p>
             </div>
           </form>
+        </div>
         )}
 
         {/* STAGE 2: BUSINESS DETAILS & TRIAL ACTIVATION */}
@@ -525,6 +545,19 @@ export const Signup: React.FC = () => {
       <LegalPolicyModal 
         type={activePolicyModal} 
         onClose={() => setActivePolicyModal(null)} 
+      />
+
+      <CredentialSummaryModal
+        isOpen={!!createdCreds}
+        businessId={createdCreds?.businessId || ''}
+        ownerUsername={createdCreds?.ownerUsername || ''}
+        appPassword={createdCreds?.appPassword || ''}
+        businessName={createdCreds?.businessName || businessName}
+        authMethod={user?.email ? `Email / Google (${user.email})` : email ? `Email (${email})` : 'Google OAuth / Email'}
+        onConfirm={() => {
+          setCreatedCreds(null);
+          navigate('/');
+        }}
       />
     </div>
   );
